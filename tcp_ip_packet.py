@@ -1,5 +1,5 @@
 '''
-    Raw sockets on Linux
+	Raw sockets on Linux
 '''
 
 # some imports
@@ -8,23 +8,40 @@ from struct import *
 
 # checksum functions needed for calculation checksum
 def checksum(msg):
-    s = 0
-    print (msg)
-    # loop taking 2 characters at a time
-    for i in range(0, len(msg), 2):
-        w = msg[i] + (msg[i+1] << 8 )
-        s = s + w
+	s = 0
+	
+	# loop taking 2 characters at a time
+	for i in range(0, len(msg), 2):
+		w = ord(msg[i]) + (ord(msg[i+1]) << 8 )
+		s = s + w
+	
+	s = (s>>16) + (s & 0xffff);
+	s = s + (s >> 16);
+	
+	#complement and mask to 4 byte short
+	s = ~s & 0xffff
+	
+	return s
 
-    s = (s>>16) + (s & 0xffff);
-    s = s + (s >> 16);
+# the main function
+def main():
 
-    #complement and mask to 4 byte short
-    s = ~s & 0xffff
+    #create a raw socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+    except socket.error , msg:
+        print 'Socket could not be created. Error Code : ' + str(msg[0]) + ' Message ' + msg[1]
+        sys.exit()
 
-    return s
+    # tell kernel not to put in headers, since we are providing it, when using IPPROTO_RAW this is not necessary
+    # s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+        
+    # now start constructing the packet
+    packet = '';
 
-def craft_ip_header(source_ip, dest_ip):
-    
+    source_ip = '1.2.3.4'
+    dest_ip = '192.168.1.1'	# or socket.gethostbyname('www.google.com')
+
     # ip header fields
     ip_ihl = 5
     ip_ver = 4
@@ -42,9 +59,6 @@ def craft_ip_header(source_ip, dest_ip):
 
     # the ! in the pack format string means network order
     ip_header = pack('!BBHHHBBH4s4s' , ip_ihl_ver, ip_tos, ip_tot_len, ip_id, ip_frag_off, ip_ttl, ip_proto, ip_check, ip_saddr, ip_daddr)
-    return ip_header
-
-def craft_tcp_header(user_data, source_ip, dest_ip):
 
     # tcp header fields
     tcp_source = 1234	# source port
@@ -69,6 +83,8 @@ def craft_tcp_header(user_data, source_ip, dest_ip):
     # the ! in the pack format string means network order
     tcp_header = pack('!HHLLBBHHH' , tcp_source, tcp_dest, tcp_seq, tcp_ack_seq, tcp_offset_res, tcp_flags,  tcp_window, tcp_check, tcp_urg_ptr)
 
+    user_data = 'Hello, how are you'
+
     # pseudo header fields
     source_address = socket.inet_aton( source_ip )
     dest_address = socket.inet_aton(dest_ip)
@@ -76,41 +92,14 @@ def craft_tcp_header(user_data, source_ip, dest_ip):
     protocol = socket.IPPROTO_TCP
     tcp_length = len(tcp_header) + len(user_data)
 
-    psh = pack('!4s4sBBH' , source_address , dest_address , placeholder , protocol , tcp_length)
+    psh = pack('!4s4sBBH' , source_address , dest_address , placeholder , protocol , tcp_length);
     psh = psh + tcp_header + user_data;
 
     tcp_check = checksum(psh)
-    #print (tcp_checksum)
+    #print tcp_checksum
 
     # make the tcp header again and fill the correct checksum - remember checksum is NOT in network byte order
     tcp_header = pack('!HHLLBBH' , tcp_source, tcp_dest, tcp_seq, tcp_ack_seq, tcp_offset_res, tcp_flags,  tcp_window) + pack('H' , tcp_check) + pack('!H' , tcp_urg_ptr)
-
-    return tcp_header
-
-
-
-# the main function
-def main():
-
-    #create a raw socket
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
-    except:
-        print ('Socket could not be created.')
-        sys.exit()
-
-    # tell kernel not to put in headers, since we are providing it, when using IPPROTO_RAW this is not necessary
-    # s.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
-        
-    # now start constructing the packet
-    packet = '';
-
-    source_ip = '1.2.3.4'
-    dest_ip = '192.168.1.1'	# or socket.gethostbyname('www.google.com')
-
-    ip_header = craft_ip_header(source_ip, dest_ip)
-    user_data = b'Hello, how are you'
-    tcp_header = craft_tcp_header(user_data, source_ip, dest_ip)
 
     # final full packet - syn packets dont have any data
     packet = ip_header + tcp_header + user_data
@@ -119,12 +108,12 @@ def main():
     count = 3
     
     for i in range(count):
-        print ('sending packet...')
+        print 'sending packet...'
         # Send the packet finally - the port specified has no effect
         s.sendto(packet, (dest_ip , 0 ))	# put this in a loop if you want to flood the target 
-        print ('send')
+        print 'send'
         time.sleep(1)
         
-    print ('all packets send')
+    print 'all packets send';
 
 main()
